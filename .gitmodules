@@ -1,3 +1,4 @@
 [submodule "mars_lib"]
 	path = mars_lib
 	url = https://github.com/HColesXYZ/mars_lib.git
+	branch = Custom-initialization
