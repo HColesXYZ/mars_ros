@@ -142,6 +142,9 @@ public:
     nh.param("position1_state_init_cov", position1_state_init_cov, std::vector<double>());
     check_size(position1_state_init_cov.size(), 3);
     position1_state_init_cov_ = Eigen::Map<Eigen::Matrix<double, 3, 1> >(position1_state_init_cov.data());
+
+    //xyz additions
+    
   }
 };
 
