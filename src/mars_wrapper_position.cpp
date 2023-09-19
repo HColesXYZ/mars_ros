@@ -171,7 +171,7 @@ void MarsWrapperPosition::ImuMeasurementCallback(const sensor_msgs::ImuConstPtr&
   // Initialize the first time at which the propagation sensor occures
   if (!core_logic_.core_is_initialized_)
   {
-    core_logic_.Initialize(p_wi_init_, q_wi_init_);
+    core_logic_.Initialize(p_wi_init_, m_sett_.position1_orientation_, m_sett_.core_init_bw_, m_sett_.core_init_ba_);
   }
 
   if (m_sett_.publish_on_propagation_ && valid_update)

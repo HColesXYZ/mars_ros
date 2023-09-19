@@ -67,6 +67,12 @@ public:
   Eigen::Quaterniond position1_cal_q_ip_;
   Eigen::Matrix<double, 3, 1> position1_state_init_cov_;
 
+  // xyz additions
+
+  Eigen::Quaterniond position1_orientation_;
+  Eigen::Vector3d core_init_bw_;
+  Eigen::Vector3d core_init_ba_;
+
   void check_size(const int& size_in, const int& size_comp)
   {
     if (size_comp != size_in)
@@ -144,7 +150,21 @@ public:
     position1_state_init_cov_ = Eigen::Map<Eigen::Matrix<double, 3, 1> >(position1_state_init_cov.data());
 
     //xyz additions
-    
+
+    std::vector<double>   core_init_bw;
+    nh.param("core_init_bw", core_init_bw, std::vector<double>());
+    check_size(core_init_bw.size(), 3);
+    core_init_bw_ = Eigen::Map<Eigen::Matrix<double, 3, 1> >(core_init_bw.data()); 
+
+    std::vector<double>   core_init_ba;
+    nh.param("core_init_ba", core_init_ba, std::vector<double>());
+    check_size(core_init_ba.size(), 3);
+    core_init_ba_ = Eigen::Map<Eigen::Matrix<double, 3, 1> >(core_init_ba.data()); 
+
+    std::vector<double> position1_orientation;
+    nh.param("position1_orientation", position1_orientation, std::vector<double>());
+    check_size(position1_orientation.size(), 4);
+    position1_orientation_ = Eigen::Quaterniond(position1_orientation.data());
   }
 };
 
