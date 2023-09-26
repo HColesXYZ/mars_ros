@@ -23,7 +23,7 @@
   <arg name="rviz"    default="true" />
 
   <!-- Config File -->
-  <arg name="config_file" default="$(find mars_ros)/launch/config/xyz_config.yaml" />
+  <arg name="config_file" default="$(find mars_ros)/launch/config/2m_config_ts.yaml" />
 
   <!-- Launching the mars_ros pose_node -->
   <node name="mars_position_node" pkg="mars_ros" type="position_node" clear_params="true" output="screen" respawn="$(arg respawn)">
