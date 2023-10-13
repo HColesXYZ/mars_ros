@@ -4,11 +4,10 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from scipy.spatial.transform import Rotation as R
 import numpy as np
-from scipy.optimize import minimize_scalar
-from scipy.spatial import distance
+from scipy.optimize import minimize
 
 def read_data(folder,file):
-    df = pd.read_csv(os.path.join(folder,file))
+    df = pd.read_csv(os.path.join(folder,file), low_memory=False)
     return df
 
 def preprocess_imu_data(df):
@@ -27,36 +26,41 @@ def preprocess_opti_data(df):
     return df
 
 def preprocess_ts_data(df):
-    df['time'] = (df['Timestamp(Epoch ms)']) / 1e3
-    df = df.drop(columns=['PointID'])
-    df = df.rename(columns={'Northing(m)': 'x', 'Easting(m)': 'y', 'Height(m)': 'z'})
 
-    return df 
+    df['time'] = df['Sensortime'] / 1e3
+    df = df.drop(columns=['Point ID'])
+    df = df.rename(columns={'Northing': 'x', 'Easting': 'y', 'Height': 'z'})
+    df['y'] = - df['y']
 
-def transform_opti(df, time=36.996168639105896, new_rotation_matrix = [[0, 0, 1], [1, 0, 0], [0, 1, 0]]):
+    df.drop_duplicates(subset=['Sensortime'])
+    df.sort_values(by='Sensortime')
 
-    df['time'] = df['time'] + time  
+    time_0 = pd.to_datetime(df['Date'][0] + ' ' + df['Time'][0], format='%d.%m.%Y %H:%M:%S.%f').timestamp()
 
-    for index, row in df.iterrows():
-
-        # Populate the message fields
-        pos = R.from_matrix(new_rotation_matrix).apply([row['x'], row['y'], row['z']])
-
-        df.at[index, 'x'] = pos[0]
-        df.at[index, 'y'] = pos[1]
-        df.at[index, 'z'] = pos[2]
-
-        old_matrix = R.from_quat([row['qx'], row['qy'], row['qz'], row['qw']]).as_matrix()
-        final_rotation_matrix = np.dot(old_matrix, new_rotation_matrix)
-        # Convert back to quaternion
-        new_quaternion = R.from_matrix(final_rotation_matrix).as_quat()
-
-        df.at[index, 'qx'] = new_quaternion[0]
-        df.at[index, 'qy'] = new_quaternion[1]
-        df.at[index, 'qz'] = new_quaternion[2]
-        df.at[index, 'qw'] = new_quaternion[3]
+    df['time'] = df['time'] - df['time'][0]
+    df['time'] = df['time'] + time_0
 
     return df
+
+def transform_opti(df, time = 0):
+
+    # takes in a dataframe and changes:
+    #from: y (up), z (forward), x(left)  (right handed)
+    # to: z (up), x (forward), y(left) (right handed)
+
+    df_copy = df.copy()
+
+    df_copy['time'] = df_copy['time'] + time  
+
+    df_copy['x'] = df['z']
+    df_copy['y'] = df['x']
+    df_copy['z'] = df['y']
+
+    df_copy['qx'] = df['qz']
+    df_copy['qy'] = df['qx']
+    df_copy['qz'] = df['qy']
+
+    return df_copy
 
 def transform_ts(df, time=0, new_rotation_matrix=[[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation=[0,0,0]):
     # Create a copy of the input DataFrame
@@ -75,65 +79,116 @@ def transform_ts(df, time=0, new_rotation_matrix=[[1, 0, 0], [0, 1, 0], [0, 0, 1
 
     return df_copy
 
-def calculate_ts_offset(ts,opti):
-    id_ts_max = ts['x'].idxmax()
-    id_opti_max = opti['x'].idxmax()
-    time_offset = opti.loc[id_opti_max, 'time'] - ts.loc[id_ts_max, 'time']
-    print(f'Total Station, OptiTrack offset: {time_offset}s')
-    return time_offset
+def transform_imu(df):
 
-def calculate_ts_rotation(ts, opti, y_flip=True):
+    # takes in a dataframe and changes:
+    #from: z (up), x (back), y (right)  (right handed)
+    # to: z (up), x (forward), y(left) (right handed)
 
-    y_rot = 0
-    if y_flip:
-        y_rot = 180
+    df_copy = df.copy()
 
-    def alignment_metric(z_rot):
-        ts_rot = R.from_euler('zyx', [z_rot, y_rot, 0], degrees=True)
-        aligned_ts = transform_ts(ts, 0, ts_rot.as_matrix(), [0, 0, 0])
+    df_copy['ax'] = -df['ax']
+    df_copy['ay'] = -df['ay']
 
-        corners_opti = get_corners(opti)
-        corners_ts = get_corners(aligned_ts)
+    df_copy['gx'] = -df['gx']
+    df_copy['gy'] = -df['gy']
 
-        distances = [distance.euclidean(corners_opti[i], corners_ts[i]) for i in range(4)]
-        return np.std(distances)
+    return df_copy
 
-    def get_corners(df):
-        x_max_id = df['x'].idxmax()
-        x_min_id = df['x'].idxmin()
-        y_max_id = df['y'].idxmax()
-        y_min_id = df['y'].idxmin()
+def calculate_error(opti_in, mars_out, verbose = True, round = 3):
+    opti_in['time_r'] = opti_in['time'].round(round)
+    mars_out['time_r'] = mars_out['time'].round(round)
 
-        return [
-            [df.loc[x_max_id, 'x'], df.loc[x_max_id, 'y']],
-            [df.loc[x_min_id, 'x'], df.loc[x_min_id, 'y']],
-            [df.loc[y_max_id, 'x'], df.loc[y_max_id, 'y']],
-            [df.loc[y_min_id, 'x'], df.loc[y_min_id, 'y']]
-        ]
+    # Merge DataFrames on the 'time' column
+    merged_data = pd.merge(opti_in, mars_out, left_on='time_r', right_on='time_r', suffixes=('_mars', '_opti'), how='inner')
 
-    result = minimize_scalar(alignment_metric, bounds=(0, 360), method='bounded')
-    print(f"The best z_rot value is {result.x:.3f} degrees with an alignment error of {result.fun:.4f}.")
-    return result.x
+    dif_x = merged_data['x_mars'] - merged_data['x_opti']
+    dif_y = merged_data['y_mars'] - merged_data['y_opti']
+    dif_z = merged_data['z_mars'] - merged_data['z_opti']
 
-def calculate_ts_translation(ts,opti):
-    x = np.max(opti['x']) - np.max(ts['x'])
-    y = np.max(opti['y']) - np.max(ts['y'])
-    z = np.max(opti['z']) - np.max(ts['z'])
+    # Calculate RMSE
+    rmse_x = np.sqrt(np.mean((dif_x)**2))
+    rmse_y = np.sqrt(np.mean((dif_y)**2))
+    rmse_z = np.sqrt(np.mean((dif_z)**2))
 
-    print(f"The best translation values (x,y,z) are {x:.3f}, {y:.3f}, {z:.3f}")
-    return [x,y,z]
+    # Calculate RMSE for distance
+    rmse_distance = np.sqrt(rmse_x**2 + rmse_y**2 + rmse_z**2)
+    if(verbose):
+        print('Mars error on Opti Data:')
+        print(f'Error calculating on {merged_data.shape[0]} rows')
+        print(f'RMSE (Distance): {(rmse_distance * 1e3).round(3)}mm')
+    return rmse_distance
 
-def initial_conditions(df):
-    print('Initial Conditions')
-    pos = [df['x'].iloc[0], df['y'].iloc[0], df['z'].iloc[0]]
-    print(f'Position XYZ: {pos}')
-    rot = [df['qx'].iloc[0], df['qy'].iloc[0], df['qz'].iloc[0], df['qw'].iloc[0]]
-    print(f'Orientation XYZW: {rot}')
-   
-def get_files(folder_path):
+def calculate_transformation(df1, df2, do_time = True):
+
+    t_bound = (-3070, -3050)
+    if not do_time:
+        t_bound = (0,0)
+
+    def optimization_function(params):
+        t, x, y, z, z_rot = params
+        rot = R.from_euler('zyx', [z_rot, 0, 0], degrees=True).as_matrix()
+        trans = [x, y, z]
+
+        aligned_df1 = transform_ts(df1, time= t, new_rotation_matrix=rot, translation=trans)
+
+        distance = calculate_error(df2, aligned_df1, verbose=False)
+        
+        return distance
+
+    print('Calculating best Rotation and Translation Values...')
+    result = minimize(optimization_function, [sum(t_bound) / 2, 15, -10, 0, 41], 
+                      bounds=[t_bound, (13, 16), (-12, -8), (-1, 1), (30, 50)], method='Powell')
+
+    t, x, y, z, z_rot = result.x
+    print(f"The best values for x, y, and z are [{x:.5f}, {y:.5f}, {z:.5f}] meters.")
+    print(f"The best value for z_rot is {z_rot:.5f} degrees.")
+    print(f"The best values for t is {t:.5f} seconds.")
+
+    rot = R.from_euler('zyx', [z_rot, 0, 0], degrees=True).as_matrix()
+    return rot, [x,y,z], t
+
+def imu_noise(imu, stationary_period, noise_scale = 1.0, bias_scale = 1.0):
+    # Extract the first and last `stationary_period` seconds of data
+    first_period_data = imu[imu['time'] <= imu['time'].min() + stationary_period]
+    last_period_data = imu[imu['time'] >= imu['time'].max() - stationary_period]
+    stationary_data = pd.concat([first_period_data, last_period_data])
+    # Calculate the noise values
+    gyro_noise = stationary_data[['gx', 'gy', 'gz']].std().mean() * noise_scale
+    acc_noise = stationary_data[['ax', 'ay', 'az']].std().mean() * noise_scale
+
+    # Print the results
+    print(f'gyro_rate_noise: {gyro_noise}')
+    print(f'acc_noise: {acc_noise}')
+    print(f'gyro_bias_noise: {gyro_noise * bias_scale}')
+    print(f'acc_bias_noise: {acc_noise * bias_scale}')
+
+    # Plot the stationary period
+    plt.figure(figsize=(10, 6))
+    plt.subplot(2, 1, 1)
+    plt.plot(stationary_data['time'], stationary_data['gx'], label='gx')
+    plt.plot(stationary_data['time'], stationary_data['gy'], label='gy')
+    plt.plot(stationary_data['time'], stationary_data['gz'], label='gz')
+    plt.legend()
+    plt.title('Gyro Data')
+
+    plt.subplot(2, 1, 2)
+    plt.plot(stationary_data['time'], stationary_data['ax'], label='ax')
+    plt.plot(stationary_data['time'], stationary_data['ay'], label='ay')
+    plt.plot(stationary_data['time'], stationary_data['az'], label='az')
+    plt.legend()
+    plt.title('Accelerometer Data')
+
+    plt.tight_layout()
+    plt.show()
+
+def chop_first(df, seconds = 0):
+    return df[df['time'] > df['time'].iloc[0] + seconds]
+
+def get_files(folder_path, do_ts = True):
 
     # Define regex patterns for each type of file
-    ts_pattern = r'^ts_.*\.csv$'
+    ts_pattern = r'^t.*\.csv$'
     opti_pattern = r'^[^a-zA-Z]+\.csv$'
     imu_pattern = r'.*updated\.csv$'
 
@@ -145,9 +200,15 @@ def get_files(folder_path):
     files = os.listdir(folder_path)
 
     # Find the appropriate files
-    ts_file = filter_files(ts_pattern, files)
+    ts_data = None
+    ts_file = None
+    if(do_ts):
+        ts_file = filter_files(ts_pattern, files)
+        ts_data = preprocess_ts_data(read_data(folder_path,ts_file))
     opti_file = filter_files(opti_pattern, files)
+    opti_data = preprocess_opti_data(read_data(folder_path,opti_file))
     imu_file = filter_files(imu_pattern, files)
+    imu_data = preprocess_imu_data(read_data(folder_path,imu_file))
 
     # Print the results
     print('Files found:')
@@ -156,9 +217,7 @@ def get_files(folder_path):
     print("IMU File:", imu_file)
     print()
 
-    return (preprocess_ts_data(read_data(folder_path,ts_file)), 
-            preprocess_opti_data(read_data(folder_path,opti_file)), 
-            preprocess_imu_data(read_data(folder_path,imu_file)))
+    return (ts_data, opti_data, imu_data)
 
 def plot(ts, opti, imu):
 
@@ -166,24 +225,19 @@ def plot(ts, opti, imu):
     plt.figure(figsize=(10, 8))
 
     # Plot for opti DataFrame
-    plt.subplot(4, 1, 1)
-    plt.plot(opti['time'], opti['x'], label='x')
-    plt.plot(opti['time'], opti['y'], label='y')
-    plt.plot(opti['time'], opti['z'], label='z')
-    plt.ylabel('Opti Track (m)')
+    plt.subplot(3, 1, 1)
+    plt.plot(opti['time'], opti['x'], label='opti x')
+    plt.plot(opti['time'], opti['y'], label='opti y')
+    plt.plot(opti['time'], opti['z'], label='opti z')
+    plt.plot(ts['time'], ts['x'], label='ts x')
+    plt.plot(ts['time'], ts['y'], label='ts y')
+    plt.plot(ts['time'], ts['z'], label='ts z')
+    plt.ylabel('Position (m)')
     plt.xlabel('Time (s)')
     plt.legend()
 
-    plt.subplot(4, 1, 2)
-    plt.plot(ts['time'], ts['x'], label='x')
-    plt.plot(ts['time'], ts['y'], label='y')
-    plt.plot(ts['time'], ts['z'], label='z')
-    plt.ylabel('Total Station (m)')
-    plt.xlabel('Time (s)')
-    plt.legend()
-
-    # Plot for ts DataFrame
-    plt.subplot(4, 1, 3)
+    # Plot for z plane
+    plt.subplot(3, 1, 2)
     plt.plot(ts['x'], ts['y'], label='ts')
     plt.plot(opti['x'], opti['y'], label='opti')
     plt.xlabel('X Pos (m)')
@@ -191,7 +245,7 @@ def plot(ts, opti, imu):
     plt.legend()
 
     # Plot for imu DataFrame
-    plt.subplot(4, 1, 4)
+    plt.subplot(3, 1, 3)
     plt.plot(imu['time'], imu['ax'], label='ax')
     plt.plot(imu['time'], imu['ay'], label='ay')
     plt.plot(imu['time'], imu['az'], label='az')
@@ -206,20 +260,44 @@ def plot(ts, opti, imu):
     plt.show()
 
 def main():
-    folder_path = 'src/mars_ros/tools/data/ts_2m_box_no_rot_test_05_20230920_143644'
+    #folder_path = 'src/mars_ros/tools/data/box_09-10-23/box-no-rot_2min_09-10-23'
+    #ts_opti_time_gain = -3060.77811
+    #ts_rot = R.from_euler('zyx', [41.02884, 0, 0], degrees=True).as_matrix()
+    #ts_trans = [14.94909, -10.31693, -0.19395]
+
+    #folder_path = 'src/mars_ros/tools/data/box_09-10-23/box-no-rot_5m_09-10-23'
+    #ts_opti_time_gain = -3060.61450
+    #ts_rot = R.from_euler('zyx', [41.01596, 0, 0], degrees=True).as_matrix()
+    #ts_trans = [14.97019, -10.29793, -0.20497]
+
+    #folder_path = 'src/mars_ros/tools/data/box_09-10-23/box-with-rot_2min_09-10-23'
+    #ts_opti_time_gain = -3060.77811
+    #ts_rot = R.from_euler('zyx', [41.01596, 0, 0], degrees=True).as_matrix()
+    #ts_trans = [14.97019, -10.29793, -0.20497]
+
+    folder_path = 'src/mars_ros/tools/data/box_09-10-23/box-with-rot_5m_09-10-23'
+    ts_opti_time_gain = -3060.77811
+    ts_rot = R.from_euler('zyx', [41.01596, 0, 0], degrees=True).as_matrix()
+    ts_trans = [14.97019, -10.29793, -0.20497]
+
+    opti_imu_time_gain = 0
+
     ts, opti, imu = get_files(folder_path)
+    opti = transform_opti(opti, time = opti_imu_time_gain)
+    imu = transform_imu(imu)
 
-    opti = transform_opti(opti)
+    do_imu_noise = False
+    do_ts_transform = False
 
-    z_rot = calculate_ts_rotation(ts,opti)
-    ts_rot = R.from_euler('zyx', [z_rot, 180, 0], degrees=True)
-    ts = transform_ts(ts, new_rotation_matrix = ts_rot.as_matrix())
+    if(do_imu_noise):
+        imu_noise(imu, stationary_period = 20, noise_scale= 1, bias_scale=0.10)
 
-    ts_translation = calculate_ts_translation(ts,opti)
-    ts = transform_ts(ts, translation = ts_translation)
+    if(do_ts_transform):
+        ts_rot, ts_trans, ts_opti_time_gain = calculate_transformation(ts,opti)
 
-    ts_offset = calculate_ts_offset(ts, opti)
-    ts = transform_ts(ts, time = ts_offset)
+    ts = transform_ts(ts, time = ts_opti_time_gain, new_rotation_matrix=ts_rot, translation=ts_trans)
+
+    calculate_error(opti, ts, verbose=True, round=2)
 
     plot(ts, opti, imu)
 

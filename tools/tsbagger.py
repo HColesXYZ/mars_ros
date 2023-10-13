@@ -1,27 +1,23 @@
-import pandas as pd
-import re
-import numpy as np
 import rospy
 import rosbag
 from sensor_msgs.msg import Imu
 from geometry_msgs.msg import PoseStamped
 from std_msgs.msg import Header
-from scipy.spatial.transform import Rotation as R
 import math
 import os
 from tsplotter import *
 
-def downsample(df, frequency, start_time):
-    # Split the DataFrame into two parts: first 5 seconds and the rest
-    #df_first_5_seconds = df[df['time'] <= df['time'].iloc[0] + start_time]
-    #df_rest = df[df['time'] > df['time'].iloc[0] + start_time]
+def downsample(df):
 
-    #df_combined = pd.concat([df_first_5_seconds, df_rest.iloc[::frequency]])
-    df_combined = df.iloc[::frequency]
-    mean_diff = df_combined['time'].diff().dropna().mean()
+    df['temp'] = df['time'].round(0)
+    # Use drop_duplicates to keep only the first entry for each second
+    df_downsampled = df.drop_duplicates(subset=['temp'], keep='first').reset_index(drop=True)
+    df_downsampled = df_downsampled.drop('temp', axis=1)
+    
+    mean_diff = df_downsampled['time'].diff().dropna().mean()
     print(f'Down Sampled to: {mean_diff:.3f}Hz')
-
-    return df_combined 
+    
+    return df_downsampled
 
 def create_header_stamp(time_value):
     nsecs, secs = math.modf(time_value)
@@ -35,12 +31,12 @@ def write_imu(df,bag):
         msg.header = create_header_stamp(row['time'])
 
         # Populate the message fields
-        msg.linear_acceleration.x = -row['ax']
-        msg.linear_acceleration.y = -row['ay']
+        msg.linear_acceleration.x = row['ax']
+        msg.linear_acceleration.y = row['ay']
         msg.linear_acceleration.z = row['az']
 
-        msg.angular_velocity.x = -row['gx']
-        msg.angular_velocity.y = -row['gy']
+        msg.angular_velocity.x = row['gx']
+        msg.angular_velocity.y = row['gy']
         msg.angular_velocity.z = row['gz']
 
         bag.write('/imu_in_topic', msg, t=msg.header.stamp)
@@ -60,10 +56,10 @@ def write_opti(df,bag):
         msg.pose.position.z = row['z']
 
         #these quats arent used in mars so this does not matter
-        #msg.pose.orientation.w = row['qx']
-        #msg.pose.orientation.x = row['qy']
-        #msg.pose.orientation.y = row['qz']
-        #msg.pose.orientation.z = row['qw']
+        msg.pose.orientation.w = row['qx']
+        msg.pose.orientation.x = row['qy']
+        msg.pose.orientation.y = row['qz']
+        msg.pose.orientation.z = row['qw']
 
         bag.write('/pose_in_topic', msg, t=msg.header.stamp)
 
@@ -84,28 +80,31 @@ def write_ts(df,bag):
         bag.write('/pose_in_topic', msg, t=msg.header.stamp)
 
 def main():
+    #folder = 'src/mars_ros/tools/data/box_09-10-23/box-with-rot_2min_09-10-23'
+    #ts_opti_time_gain = -3060.77811
 
-    folder = 'src/mars_ros/tools/data/ts_2m_box_no_rot_test_05_20230920_143644'
-    bag_name = '2mRotIn.bag'
- 
-    bag = rosbag.Bag(os.path.join(folder, bag_name), 'w')
+    #folder = 'src/mars_ros/tools/data/box_09-10-23/box-no-rot_5m_09-10-23'
+    #ts_opti_time_gain = -3060.61450
+
+    #folder = 'src/mars_ros/tools/data/box_09-10-23/box-no-rot_2min_09-10-23'
+    #ts_opti_time_gain = -3060.77811
+
+    folder = 'src/mars_ros/tools/data/box_09-10-23/box-with-rot_5m_09-10-23'
+    ts_opti_time_gain = -3060.77811
+
+    opti_imu_time_gain = 0
 
     ts, opti, imu = get_files(folder)
+    opti = transform_opti(opti, time = opti_imu_time_gain)
+    ts = transform_ts(ts, time = ts_opti_time_gain)
+    imu = transform_imu(imu)
+    imu = chop_first(imu, seconds = 1)
 
-    #opti = downsample(opti, 240, 5)
-    opti = transform_opti(opti)
+    bag_name = 'Input.bag'
+    bag = rosbag.Bag(os.path.join(folder, bag_name), 'w')
 
-    z_rot = calculate_ts_rotation(ts,opti)
-    ts_rot = R.from_euler('zyx', [z_rot, 180, 0], degrees=True)
-    ts = transform_ts(ts, new_rotation_matrix = ts_rot.as_matrix())
-
-    ts_translation = calculate_ts_translation(ts,opti)
-    ts = transform_ts(ts, translation = ts_translation)
-
-    ts_offset = calculate_ts_offset(ts, opti)
-    ts = transform_ts(ts, time = ts_offset)
-    ts = downsample(ts, 8, 0)
-    #opti = downsample(opti, 240, 0)
+    #ts = downsample(ts)
+    #opti = downsample(opti)
 
     write_imu(imu, bag)
     #write_opti(opti, bag)

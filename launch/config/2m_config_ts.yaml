@@ -25,45 +25,65 @@ sub_sensor_cb_buffer_size: 1
 #acc_noise: 0.89791        # Noise STD [m/s^2]
 #acc_bias_noise: 0.28402
 
-# 2m values
 
-#gyro_rate_noise: 0.004020
-#gyro_bias_noise: 0.003510
+#current numbers
+#gyro_noise: 0.0005163303282603964
+#acc_noise: 0.005013766764660702
+#gyro_bias_noise: 0.00012863303282603964 # halved
+#acc_bias_noise: 0.001253766764660702 # halved
+
+# 100% and 10%
+gyro_rate_noise: 0.0005163303282603964
+acc_noise: 0.005013766764660702
+gyro_bias_noise: 0.0005163303282603964
+acc_bias_noise: 0.0005013766764660702
+
+# 100% and 10%
+#gyro_rate_noise: 0.001020
+#gyro_bias_noise: 0.000510
 #acc_noise: 0.020171
 #acc_bias_noise: 0.010086
 
-gyro_rate_noise: 0.001020
-gyro_bias_noise: 0.001020
-acc_noise: 0.020171
-acc_bias_noise: 0.020171
-
-# Sensor Settings
-#gyro_rate_noise: 0.01 # Noise STD [rad/s]
-#gyro_bias_noise: 0.001
-#acc_noise: 0.5        # Noise STD [m/s^2]
-#acc_bias_noise: 0.2
-
 # Core state covariance p,v,q,bw,ba
 core_init_cov_p: [0.0005,0.0005,0.0005]
-core_init_cov_v: [0.0003,0.0003,0.0003]
-core_init_cov_q: [0.1218,0.1218,0.1218] # 20degree
+core_init_cov_v: [0.003,0.003,0.003]
+core_init_cov_q: [0.3218,0.3218,0.3218] # 20degree
 core_init_cov_bw: [0.0076,0.0076,0.0076]
 core_init_cov_ba: [0.01,0.01,0.01]
 
 # Pose1 sensor settings
-position1_pos_meas_noise: [0.0005,0.0005,0.0005]
-position1_use_dyn_meas_noise: false
-position1_cal_p_ip: [0.0, 0.0, 0.0]
-position1_state_init_cov: [0.00001,0.00001,0.00001]
+position1_pos_meas_noise: [0.05,0.05,0.05]
+position1_use_dyn_meas_noise: False
+#position1_cal_p_ip: [0.0,0.0,0.0]
+#position1_cal_p_ip: [-0.205, 0, 0.187]
+position1_cal_p_ip: [-0.255, 0.00, 0.1285]
+
+position1_state_init_cov: [0.0001,0.0001,0.0001]
 
 # Initial Conditions
 
-#position1_orientation: [-0.011113,-0.707111,0.029536,0.706398] # xyzw 2m
-#position1_orientation: [-0.01799344,-0.05398033,0.43284226,0.39967213] # xyzw 2m
-#position1_orientation: [-0.02068100026068404, -0.7159660090247517, -0.6975430087925297, 0.019968000251696587] # xyzw 2m
-#position1_orientation:  # xyzw 2m
-#core_init_bw:  #bw STIM
-#core_init_ba:  #ba STIM
-position1_orientation: [-0.05015337252005699, 0.0907002427082295, 0.3635367832222322, 0.9257964746324995]
-core_init_bw: [-0.000251069185448359, -0.00024618849426683666, 0.0007106929517427404]
-core_init_ba: [-0.25817062903458454, 0.030131341405782178, -0.05804096124219985]
+
+# box_09-10-23/not rot 5 min - ts
+#position1_orientation: [-0.08582240378780148, -0.10114168667602112, 0.7003043545021165, -0.7014119226886489]
+#core_init_bw: [-6.499259723527135e-05, -0.00013492583831989897, -8.221503157537708e-05]
+#core_init_ba: [-0.013664442902032128, -0.01293016171013706, 0.009842843867678983]
+
+# box_09-10-23/not rot 2 min - opti 
+#position1_orientation: [0.03976523005433457, 0.1134710114649922, -0.4382935848138486, 0.8907534953885184]
+#core_init_bw: [-0.00016514192972472648, -0.00010276603868224218, 0.00012617545893491824]
+#core_init_ba: [0.041604034612217185, -0.07791426395761238, -0.01817271969367732]
+
+# box_09-10-23/not rot 2 min - ts 
+#position1_orientation: [-0.08017008047638613, -0.09116771161136755, 0.7568682756354246, -0.6421928214271906]
+#core_init_bw: [-0.0005598547530097091, -0.00021963616537241633, 0.0019032273323440372]
+#core_init_ba: [0.05824610775440528, -0.008219759180930172, -0.012003252031292449]
+
+# box_09-10-23/with rot 2 min - ts 
+#position1_orientation: [-0.07799135223518079, -0.09515318653367039, 0.7341438391763688, -0.6677544784338018]
+#core_init_bw: [-4.1935646551644096e-05, -0.00011980960222272949, -0.00021055872595672574]
+#core_init_ba: [0.0026336378269730563, -0.021738658306637165, -0.02599353249917983]
+
+# box_09-10-23/with rot 5 min - ts 
+position1_orientation: [0.08215399794638087, 0.08846945704511644, -0.7188699793867467, 0.6845800380730269]
+core_init_bw: [-0.00017079161599570472, -0.0001596653603187814, 0.0003091654014332699]
+core_init_ba: [0.03368471726869954, -0.021266453087712432, -0.017391119212357427]
