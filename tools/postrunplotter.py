@@ -39,7 +39,7 @@ def initial_states(df):
     rot = [df['qx'].iloc[0], df['qy'].iloc[0], df['qz'].iloc[0], df['qw'].iloc[0]]
     print(f'position1_orientation: {rot}\n')
 
-def plot(opti_in, ts_in, mars_out):
+def plot_out(opti_in, ts_in, mars_out, do_ts = True):
 
     # Create Plots
     _, axs = plt.subplots(2, 2, sharex=True)
@@ -49,9 +49,10 @@ def plot(opti_in, ts_in, mars_out):
     axs[0][0].plot(opti_in['time'], opti_in['y'], label='Opti y')
     axs[0][0].plot(opti_in['time'], opti_in['z'], label='Opti z')
 
-    axs[0][0].plot(ts_in['time'], ts_in['x'], label='Ts x')
-    axs[0][0].plot(ts_in['time'], ts_in['y'], label='Ts y')
-    axs[0][0].plot(ts_in['time'], ts_in['z'], label='Ts z')
+    if do_ts:
+        axs[0][0].plot(ts_in['time'], ts_in['x'], label='Ts x')
+        axs[0][0].plot(ts_in['time'], ts_in['y'], label='Ts y')
+        axs[0][0].plot(ts_in['time'], ts_in['z'], label='Ts z')
 
     axs[0][0].plot(mars_out['time'], mars_out['x'], label='Mars x')
     axs[0][0].plot(mars_out['time'], mars_out['y'], label='Mars y')
@@ -90,7 +91,8 @@ def plot(opti_in, ts_in, mars_out):
     # Create a new figure for the last plot
     _, ax2 = plt.subplots()
 
-    ax2.plot(ts_in['x'], ts_in['y'], label='ts')
+    if do_ts:
+        ax2.plot(ts_in['x'], ts_in['y'], label='ts')
     ax2.plot(opti_in['x'], opti_in['y'], label='opti')
     ax2.plot(mars_out['x'], mars_out['y'], label='mars')
     ax2.set_xlabel('X Pos (m)')
@@ -104,9 +106,10 @@ def plot(opti_in, ts_in, mars_out):
     ax3.plot(opti_in['time'], opti_in['y'], label='Opti y')
     ax3.plot(opti_in['time'], opti_in['z'], label='Opti z')
 
-    ax3.plot(ts_in['time'], ts_in['x'], label='Ts x')
-    ax3.plot(ts_in['time'], ts_in['y'], label='Ts y')
-    ax3.plot(ts_in['time'], ts_in['z'], label='Ts z')
+    if do_ts:
+        ax3.plot(ts_in['time'], ts_in['x'], label='Ts x')
+        ax3.plot(ts_in['time'], ts_in['y'], label='Ts y')
+        ax3.plot(ts_in['time'], ts_in['z'], label='Ts z')
 
     ax3.plot(mars_out['time'], mars_out['x'], label='Mars x')
     ax3.plot(mars_out['time'], mars_out['y'], label='Mars y')
@@ -115,6 +118,48 @@ def plot(opti_in, ts_in, mars_out):
     ax3.legend()
 
     plt.show()
+
+def write_rpg(mars_out, opti_in, folder):
+    
+    # Define the columns to filter and their corresponding new names
+    columns_to_filter = ['time', 'x', 'y', 'z', 'qx', 'qy', 'qz', 'qw']
+    new_column_names = {'time': 'timestamp', 'x': 'tx', 'y': 'ty', 'z': 'tz'}
+    #timestamp tx ty tz qx qy qz qw
+
+    # Perform filtering and renaming
+    #stamped_traj_estimate.txt
+    traj_est = mars_out.filter(items=columns_to_filter).rename(columns=new_column_names)
+    #stamped_groundtruth.txt
+    groundtruth = opti_in.filter(items=columns_to_filter).rename(columns=new_column_names)
+    
+    print('Writing RPG Values')
+    print(f"Columns in Mars: {', '.join(traj_est.columns)}")
+    print(f"Columns in Opti: {', '.join(groundtruth.columns)}\n")
+
+    traj_est.to_csv(f'{folder}/stamped_traj_estimate.txt', sep=' ', index=False)
+    groundtruth.to_csv(f'{folder}/stamped_groundtruth.txt', sep=' ', index=False)
+    # Return the modified dataframes
+
+def add_vector(df, offset_vector):
+    # Assuming df contains columns 'qx', 'qy', 'qz', 'qw', 'x', 'y', 'z'
+    # Make sure to replace these with actual column names if they are different.
+
+    # Extract the quaternion values
+    qx = df['qx'].values
+    qy = df['qy'].values
+    qz = df['qz'].values
+    qw = df['qw'].values
+
+    # Create Rotation object
+    rot = R.from_quat(np.column_stack((qx, qy, qz, qw)))
+
+    # Apply rotation to the offset vector
+    offset_vector_rotated = rot.apply(offset_vector)
+
+    # Add the rotated offset vector to the 'x', 'y', 'z' columns
+    df[['x', 'y', 'z']] = df[['x', 'y', 'z']] + offset_vector_rotated
+
+    return df
 
 def main():
     #folder = 'src/mars_ros/tools/data/box_09-10-23/box-no-rot_2min_09-10-23'
@@ -132,35 +177,50 @@ def main():
     #mars_rot = R.from_euler('zyx', [41.21194, 0, 0], degrees=True).as_matrix()
     #mars_trans = [14.86188, -10.10387, -0.02135]
 
-    folder = 'src/mars_ros/tools/data/box_09-10-23/box-with-rot_5m_09-10-23'
-    ts_imu_time_gain = -3060.77811
-    mars_rot = R.from_euler('zyx', [41.18, 0, 0], degrees=True).as_matrix()
-    mars_trans = [14.86188, -10.10387, -0.02135]
+    #folder = 'src/mars_ros/tools/data/box_09-10-23/box-with-rot_5m_09-10-23'
+    #ts_imu_time_gain = -3060.77811
+    #mars_rot = R.from_euler('zyx', [41.18, 0, 0], degrees=True).as_matrix()
+    #mars_trans = [14.86188, -10.10387, -0.02135]
+
+    #folder = 'src/mars_ros/tools/data/box_09-10-23/box-with-rot_2min_09-10-23' # new lever
+    #ts_imu_time_gain = -3060.77811
+    #mars_rot = R.from_euler('zyx', [40.99881, 0, 0], degrees=True).as_matrix()
+    #mars_trans = [14.84544, -10.14781, -0.03321]
+
+    folder_path = 'src/mars_ros/tools/data/Archive 1'
 
     bag_name = 'Output.bag'
     opti_imu_time_gain = 0
     
-    do_mars_transform = False
+    #do_mars_transform = False
 
-    ts_in, opti_in, _ = get_files(folder)
-    opti_in = transform_opti(opti_in, time = opti_imu_time_gain)
-    ts_in = transform_ts(ts_in, time = ts_imu_time_gain)
+    _, opti_in, _ = get_files(folder_path, do_ts=False)
+    #opti_in = transform_opti(opti_in, time = opti_imu_time_gain)
+    opti_in = time_shift(cam_to_mars(opti_in), opti_imu_time_gain)
+    #ts_in = transform_ts(ts_in, time = ts_imu_time_gain)
 
     
-    mars_out = read_out(os.path.join(folder, bag_name))
+    mars_out = read_out(os.path.join(folder_path, bag_name))
     final_states(mars_out)
 
-    mars_out = chop_first(mars_out, seconds = 7)
+    mars_out = chop_first(mars_out, seconds = 30)
 
-    if do_mars_transform:
-        mars_rot, mars_trans, _ = calculate_transformation(mars_out, opti_in, do_time = False)
+    # from figure 6-1 of STIM sheet
+    #add_vector(mars_out, offset_vector = np.array([0.0439, 0.0224, 0.01365]))
 
-    mars_out = transform_ts(mars_out, new_rotation_matrix = mars_rot, translation = mars_trans)
-    ts_in = transform_ts(ts_in, new_rotation_matrix = mars_rot, translation = mars_trans)
 
-    calculate_error(opti_in, mars_out)
+    #if do_mars_transform:
+    #    mars_rot, mars_trans, _ = calculate_transformation(mars_out, opti_in, do_time = False)
 
-    plot(opti_in,ts_in,mars_out)
+    #mars_out = transform_ts(mars_out, new_rotation_matrix = mars_rot, translation = mars_trans)
+    #ts_in = transform_ts(ts_in, new_rotation_matrix = mars_rot, translation = mars_trans)
+    
+
+    #write_rpg(mars_out,opti_in, folder)
+
+    #calculate_error(opti_in, mars_out)
+
+    plot(opti_in,None,mars_out, do_ts = False)
 
 if __name__ == '__main__':
     main()

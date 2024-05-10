@@ -11,6 +11,7 @@ def read_data(folder,file):
     return df
 
 def preprocess_imu_data(df):
+    #finds the offset on the second line
     match = re.search(r'\d+\.\d+', df['trigger_time'][0])
     offset = float(match.group())
     df = df.drop(index=0).reset_index(drop=True)
@@ -30,7 +31,6 @@ def preprocess_ts_data(df):
     df['time'] = df['Sensortime'] / 1e3
     df = df.drop(columns=['Point ID'])
     df = df.rename(columns={'Northing': 'x', 'Easting': 'y', 'Height': 'z'})
-    df['y'] = - df['y']
 
     df.drop_duplicates(subset=['Sensortime'])
     df.sort_values(by='Sensortime')
@@ -92,6 +92,130 @@ def transform_imu(df):
 
     df_copy['gx'] = -df['gx']
     df_copy['gy'] = -df['gy']
+
+    return df_copy
+
+def mars_to_ned(df):
+    df_copy = df.copy()
+
+    if 'x' in df.columns:
+        df_copy['y'] = -df['y']
+        df_copy['z'] = -df['z']
+    if 'qx' in df.columns:
+        df_copy['qy'] = -df['qy']
+        df_copy['qz'] = -df['qz']
+    if 'ax' in df.columns:
+        df_copy['ay'] = -df['ay']
+        df_copy['az'] = -df['az'] 
+    if 'gx' in df.columns:
+        df_copy['gy'] = -df['gy']
+        df_copy['gz'] = -df['gz']
+
+    return df_copy
+
+def cam_to_ned(df):
+    df_copy = df.copy()
+    #x -> z
+    #y -> -x
+    #z -> -y
+    if 'x' in df.columns:
+        df_copy['x'], df_copy['y'], df_copy['z'] = df['z'], -df['x'], -df['y']
+    if 'qx' in df.columns:
+        df_copy['qx'], df_copy['qy'], df_copy['qz'] = df['qz'], -df['qx'], -df['qy']
+    if 'ax' in df.columns:
+        df_copy['ax'], df_copy['ay'], df_copy['az'] = df['az'], -df['ax'], -df['ay']
+    if 'gx' in df.columns:
+        df_copy['gx'], df_copy['gy'], df_copy['gz'] = df['gz'], -df['gx'], -df['gy']
+
+    return df_copy  
+
+def cam_to_mars(df):
+    df_copy = df.copy()
+    #x -> z
+    #y -> x
+    #z -> y
+    if 'x' in df.columns:
+        df_copy['x'], df_copy['y'], df_copy['z'] = df['z'], df['x'], df['y']
+    if 'qx' in df.columns:
+        df_copy['qx'], df_copy['qy'], df_copy['qz'] = df['qz'], df['qx'], df['qy']
+    if 'ax' in df.columns:
+        df_copy['ax'], df_copy['ay'], df_copy['az'] = df['az'], df['ax'], df['ay']
+    if 'gx' in df.columns:
+        df_copy['gx'], df_copy['gy'], df_copy['gz'] = df['gz'], df['gx'], df['gy']
+
+    return df_copy  
+
+def neh_to_ned(df):
+    df_copy = df.copy()
+    #z -> -z
+    if 'x' in df.columns:
+        df_copy['z'] = -df['z']
+    if 'qx' in df.columns:
+        df_copy['qz'] = -df['qz']
+    if 'ax' in df.columns:
+        df_copy['az'] = -df['az']
+    if 'gx' in df.columns:
+        df_copy['gz'] = -df['gz']
+
+    return df_copy  
+
+def neh_to_mars(df):
+    df_copy = df.copy()
+    #y -> -y
+    if 'x' in df.columns:
+        df_copy['y'] = -df['y']
+    if 'qx' in df.columns:
+        df_copy['qy'] = -df['qy']
+    if 'ax' in df.columns:
+        df_copy['ay'] = -df['ay']
+    if 'gx' in df.columns:
+        df_copy['gy'] = -df['gy']
+
+    return df_copy  
+
+def rmars_to_mars(df):
+    #reverse camera frame to camera frame
+    df_copy = df.copy()
+    #x -> -x
+    #y -> -y
+    if 'x' in df.columns:
+        df_copy['x'], df_copy['y'] = -df['x'], -df['y']
+    if 'qx' in df.columns:
+        df_copy['qx'], df_copy['qy'] = -df['qx'], -df['qy']
+    if 'ax' in df.columns:
+        df_copy['ax'], df_copy['ay'] = -df['ax'], -df['ay']
+    if 'gx' in df.columns:
+        df_copy['gx'], df_copy['gy'] = -df['gx'], -df['gy']
+
+    return df_copy  
+
+def time_shift(df, time = 0):
+    df['time'] = df['time'] + time
+    return df
+
+def quaternions_to_euler_angles(df, seq='xyz'):
+    
+    df_copy = df.copy()
+    # Extract quaternion values from DataFrame
+    qx, qy, qz, qw = df['qx'], df['qy'], df['qz'], df['qw']
+    
+    # Convert quaternions to a rotation matrix
+    r = R.from_quat(np.array([qx, qy, qz, qw]).T)
+
+    euler = r.as_euler(seq=seq, degrees=True).T  # Adjust 'xyz' if needed
+
+    df_copy['ex'], df_copy['ey'], df_copy['ez'] = euler[0], euler[1], euler[2]
+
+    df_copy.drop(['qx', 'qy', 'qz', 'qw'], axis=1, inplace=True)
+
+    return df_copy
+
+def adjust_heading(df, roll, pitch, yaw):
+    df_copy = df.copy()
+
+    df_copy['ex'] = df['ex'] + roll
+    df_copy['ey'] = df['ey'] + pitch
+    df_copy['ez'] = df['ez'] + yaw
 
     return df_copy
 
@@ -194,7 +318,7 @@ def get_files(folder_path, do_ts = True):
 
     # Function to filter files based on regex pattern
     def filter_files(pattern, files):
-        return [file for file in files if re.match(pattern, file)][0]
+        return [file for file in files if re.match(pattern, file) and 'transform' not in file][0]
 
     # Get the list of files in the folder
     files = os.listdir(folder_path)
@@ -219,7 +343,7 @@ def get_files(folder_path, do_ts = True):
 
     return (ts_data, opti_data, imu_data)
 
-def plot(ts, opti, imu):
+def plot(ts, opti, imu, do_ts = True):
 
     # Create three separate plots
     plt.figure(figsize=(10, 8))
@@ -229,16 +353,18 @@ def plot(ts, opti, imu):
     plt.plot(opti['time'], opti['x'], label='opti x')
     plt.plot(opti['time'], opti['y'], label='opti y')
     plt.plot(opti['time'], opti['z'], label='opti z')
-    plt.plot(ts['time'], ts['x'], label='ts x')
-    plt.plot(ts['time'], ts['y'], label='ts y')
-    plt.plot(ts['time'], ts['z'], label='ts z')
+    if(do_ts):
+        plt.plot(ts['time'], ts['x'], label='ts x')
+        plt.plot(ts['time'], ts['y'], label='ts y')
+        plt.plot(ts['time'], ts['z'], label='ts z')
     plt.ylabel('Position (m)')
     plt.xlabel('Time (s)')
     plt.legend()
 
     # Plot for z plane
     plt.subplot(3, 1, 2)
-    plt.plot(ts['x'], ts['y'], label='ts')
+    if(do_ts):
+        plt.plot(ts['x'], ts['y'], label='ts')
     plt.plot(opti['x'], opti['y'], label='opti')
     plt.xlabel('X Pos (m)')
     plt.ylabel('Y Pos (m)')
@@ -260,6 +386,12 @@ def plot(ts, opti, imu):
     plt.show()
 
 def main():
+
+    folder_path = 'src/mars_ros/tools/data/Archive 1'
+    ts_opti_time_gain = -3060.77811
+    ts_rot = R.from_euler('zyx', [41.02884, 0, 0], degrees=True).as_matrix()
+    ts_trans = [14.94909, -10.31693, -0.19395]
+
     #folder_path = 'src/mars_ros/tools/data/box_09-10-23/box-no-rot_2min_09-10-23'
     #ts_opti_time_gain = -3060.77811
     #ts_rot = R.from_euler('zyx', [41.02884, 0, 0], degrees=True).as_matrix()
@@ -275,14 +407,25 @@ def main():
     #ts_rot = R.from_euler('zyx', [41.01596, 0, 0], degrees=True).as_matrix()
     #ts_trans = [14.97019, -10.29793, -0.20497]
 
-    folder_path = 'src/mars_ros/tools/data/box_09-10-23/box-with-rot_5m_09-10-23'
-    ts_opti_time_gain = -3060.77811
-    ts_rot = R.from_euler('zyx', [41.01596, 0, 0], degrees=True).as_matrix()
-    ts_trans = [14.97019, -10.29793, -0.20497]
+    #folder_path = 'src/mars_ros/tools/data/box_09-10-23/box-with-rot_5m_09-10-23'
+    #ts_opti_time_gain = -3060.77811
+    #ts_rot = R.from_euler('zyx', [41.01596, 0, 0], degrees=True).as_matrix()
+    #ts_trans = [14.97019, -10.29793, -0.20497]
 
     opti_imu_time_gain = 0
 
-    ts, opti, imu = get_files(folder_path)
+    ts, opti, imu = get_files(folder_path, do_ts=False)
+
+    opti = cam_to_ned(opti)
+    #opti = transform_opti(opti)
+    plot(ts, opti, imu, do_ts=False)
+    #opti = quaternions_to_euler_angles(opti)
+
+    #plot()   
+
+    print(opti)
+    exit(1) 
+
     opti = transform_opti(opti, time = opti_imu_time_gain)
     imu = transform_imu(imu)
 

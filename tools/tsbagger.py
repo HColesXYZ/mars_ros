@@ -80,6 +80,7 @@ def write_ts(df,bag):
         bag.write('/pose_in_topic', msg, t=msg.header.stamp)
 
 def main():
+    folder_path = 'src/mars_ros/tools/data/Archive 1'
     #folder = 'src/mars_ros/tools/data/box_09-10-23/box-with-rot_2min_09-10-23'
     #ts_opti_time_gain = -3060.77811
 
@@ -89,28 +90,30 @@ def main():
     #folder = 'src/mars_ros/tools/data/box_09-10-23/box-no-rot_2min_09-10-23'
     #ts_opti_time_gain = -3060.77811
 
-    folder = 'src/mars_ros/tools/data/box_09-10-23/box-with-rot_5m_09-10-23'
-    ts_opti_time_gain = -3060.77811
+    #folder = 'src/mars_ros/tools/data/box_09-10-23/box-with-rot_5m_09-10-23'
+    #ts_opti_time_gain = -3060.77811
 
     opti_imu_time_gain = 0
 
-    ts, opti, imu = get_files(folder)
-    opti = transform_opti(opti, time = opti_imu_time_gain)
-    ts = transform_ts(ts, time = ts_opti_time_gain)
-    imu = transform_imu(imu)
+    _, opti, imu = get_files(folder_path, do_ts=False)
+    #opti = transform_opti(opti, time = opti_imu_time_gain)
+    opti = cam_to_mars(opti)
+    opti = time_shift(opti, opti_imu_time_gain)
+    #ts = transform_ts(ts, time = ts_opti_time_gain)
+    imu = rmars_to_mars(imu)
     imu = chop_first(imu, seconds = 1)
 
     bag_name = 'Input.bag'
-    bag = rosbag.Bag(os.path.join(folder, bag_name), 'w')
+    bag = rosbag.Bag(os.path.join(folder_path, bag_name), 'w')
 
     #ts = downsample(ts)
     #opti = downsample(opti)
 
     write_imu(imu, bag)
-    #write_opti(opti, bag)
-    write_ts(ts, bag)
+    write_opti(opti, bag)
+    #write_ts(ts, bag)
     bag.close()
-    print(f"DataFrame data from '{folder}' has been packed into '{bag_name}'")
+    print(f"DataFrame data from '{folder_path}' has been packed into '{bag_name}'")
 
 
 if __name__ == '__main__':
